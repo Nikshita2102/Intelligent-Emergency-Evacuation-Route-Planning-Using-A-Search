@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Evacuation Planner Explorer</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#eef1f4;--panel:#fff;--ink:#16202b;--mute:#5d6b7a;--line:#cfd7df;--wall:#2b3a4a;--floor:#f8fafb;--exit:#1f9d62;--fire:#e8541f;--acc:#1d5fd1}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e141b;--panel:#161e27;--ink:#e6edf3;--mute:#8b9aab;--line:#2a3643;--wall:#5b7189;--floor:#1c2631;--exit:#38c283;--fire:#ff7a45;--acc:#6aa4ff}}
+:root[data-theme="dark"]{--bg:#0e141b;--panel:#161e27;--ink:#e6edf3;--mute:#8b9aab;--line:#2a3643;--wall:#5b7189;--floor:#1c2631;--exit:#38c283;--fire:#ff7a45;--acc:#6aa4ff}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:1060px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:0 0 8px}
+.sub{color:var(--mute);margin:0 0 16px;max-width:70ch}
+.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center}
+.lbl{color:var(--mute);font-size:13px;margin-right:4px}
+button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+canvas{width:100%;display:block;border-radius:6px;border:1px solid var(--line)}
+input[type=range]{flex:1;min-width:120px}
+.stats{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 0}
+.stats b{display:block;font-size:20px}.stats span{color:var(--mute);font-size:12px}
+.note{margin:10px 0 0;padding:8px 10px;border-left:3px solid var(--acc);background:var(--floor);border-radius:0 6px 6px 0;font-size:14px}
+.ag{display:grid;grid-template-columns:26px 1fr auto;gap:8px;align-items:center;padding:6px;border-radius:6px;cursor:pointer;border:1px solid transparent;width:100%;text-align:left}
+.ag[aria-pressed="true"]{border-color:var(--acc);background:var(--floor);color:var(--ink)}
+.dot{width:22px;height:22px;border-radius:50%;color:#fff;font-size:12px;display:grid;place-items:center;font-weight:600}
+.bar{height:5px;background:var(--line);border-radius:3px;margin-top:3px}.bar i{display:block;height:100%;background:var(--acc);border-radius:3px}
+.small{font-size:12.5px;color:var(--mute)}
+.bad{color:var(--fire);font-weight:600}
+ul.how{margin:0;padding-left:18px}ul.how li{margin-bottom:6px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mute);margin-top:8px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+</style></head><body><main>
+<h1>Evacuation planner explorer</h1>
+<p class="sub">Four to ten people must leave a building while fire spreads. Each person plans a route with space-time A*, booking the cells they will use so nobody collides. Pick a scenario, press play, and click a person to see their route.</p>
+<div class="grid">
+<section class="card">
+ <div class="row"><span class="lbl">Scenario</span><span id="scen"></span></div>
+ <div class="row"><span class="lbl">Algorithm</span><span id="algo"></span><button id="fc" aria-pressed="false" title="Shade each cell by when it ignites">Fire forecast</button></div>
+ <div class="row"><span class="lbl">People</span><button id="pd">Default positions</button><button id="pc">Customize</button><button id="pk">Clear all</button><span class="small" id="plh"></span></div>
+ <canvas id="cv" aria-label="Building floor plan with agents and fire"></canvas>
+ <div class="legend"><span><i style="background:var(--fire)"></i>fire</span><span><i style="background:var(--exit)"></i>exit</span><span><i style="background:var(--wall)"></i>wall</span><span>numbered circles are people</span></div>
+ <div class="row" style="margin-top:12px"><button id="play">Play</button><button id="prev" aria-label="Previous step">&lt;</button><input id="sl" type="range" min="0" max="1" value="0" aria-label="Time step"><button id="next" aria-label="Next step">&gt;</button><b id="tl" style="min-width:56px;text-align:right">t=0</b></div>
+ <div class="stats" id="live-stats"><div><b id="live" style="color:var(--exit)">0</b><span>saved so far (at this time)</span></div><div><b id="going">0</b><span>still evacuating</span></div><div><b id="lost" style="color:var(--fire)">0</b><span>no safe route</span></div></div><div class="note" id="who" style="margin-top:8px"></div><div class="stats" id="stats"></div>
+ <div class="note" id="note"></div>
+</section>
+<aside style="display:grid;gap:16px;align-content:start">
+ <section class="card"><h2>People</h2><div id="agents"></div><p class="small" style="margin:8px 0 0">Bar = nodes the search expanded for that person (more = harder search).</p></section>
+ <section class="card"><h2>How the planner thinks</h2><ul class="how">
+  <li><b>State = (cell, time).</b> Waiting is a move, so people can queue instead of colliding.</li>
+  <li><b>Fire is a known forecast.</b> A cell is blocked from the moment it ignites, and cells about to burn cost extra.</li>
+  <li><b>Reservations.</b> Each planned person books their cells at each time; later people route around those bookings.</li>
+  <li><b>Retry.</b> Planning is in priority order, so someone can get boxed in. Failed people are moved to the front and everyone replans.</li>
+ </ul></section>
+</aside></div>
+<script>
+const GRID=["####################","#..........#.......#","#..........#.......#","#..........D.......#","#####.######.#######","#..........#.......#","#..........#.......#","E..........#.......E","####################"];
+const H=GRID.length,W=GRID[0].length,MOVES=[[0,0],[1,0],[-1,0],[0,1],[0,-1]],MAXT=80,INF=1e9;
+const EXITS=[];for(let r=0;r<H;r++)for(let c=0;c<W;c++)if(GRID[r][c]=="E")EXITS.push([r,c]);
+const isExit=p=>EXITS.some(e=>e[0]==p[0]&&e[1]==p[1]);
+const BASE=[[2,3],[6,4],[2,15],[6,16]];
+const SC={normal:{f:[[5,4]],s:2,x:[],d:"Fire starts in the lower-left room. Person 0 is upstairs-left, near the fire's door, so the penalty sends them the long way through the middle door to the right exit."},
+exit_blocked:{f:[[7,2]],s:2,x:[],d:"Fire starts two cells from the left exit and burns it by t=4. Anyone who would arrive after that treats the exit as a wall, so the search falls back to the right exit with no special-case code."},
+bottleneck:{f:[[5,4]],s:3,x:[[1,1],[1,2],[2,1],[2,2],[3,1],[1,3]],d:"Ten people share one doorway out of the upper-left room. They queue by waiting. With the original priority order one person is boxed in, so the retry step reorders and replans."},
+trapped:{f:[[4,5],[3,11]],s:999,x:[],d:"Fire sits on both doors of the upper-left room and never spreads. Person 0 has no safe route; the search exhausts every reachable (cell, time) state and reports it."},
+fast_fire:{f:[[5,4]],s:1,x:[],d:"Fire spreads one cell per step from the lower-left room. The fire climbs through the lower door into the upper-left room and beats person 0 to the middle door, so person 0 cannot be saved."},
+door_fire:{f:[[3,11]],s:1,x:[],d:"Fast fire starts at the middle door and spreads both ways. Person 2 is cut off before reaching an exit."},
+crowd_fire:{f:[[3,11]],s:1,x:[[1,1],[1,2],[2,1],[2,2],[3,1],[1,3]],d:"Ten people, fast fire at the middle door. Queuing plus fire means about half are lost."}};
+const COL=["#1d5fd1","#c2410c","#7c3aed","#0f766e","#be185d","#4d7c0f","#b45309","#0369a1","#9d174d","#475569"];
+let custom=null,place=false,scen="normal",algo="astar",R=null,T=0,sel=null,timer=null,forecast=false;
+
+function fireTimes(fires,sp){const ft=new Map(),q=[];for(const f of fires){ft.set(f+"",0);q.push(f)}
+ for(let i=0;i<q.length;i++){const [r,c]=q[i];for(const [dr,dc] of MOVES.slice(1)){const n=[r+dr,c+dc];
+  if(n[0]>=0&&n[0]<H&&n[1]>=0&&n[1]<W&&GRID[n[0]][n[1]]!="#"&&!ft.has(n+"")){ft.set(n+"",ft.get([r,c]+"")+sp);q.push(n)}}}return ft}
+const hh=p=>Math.min(...EXITS.map(e=>Math.abs(p[0]-e[0])+Math.abs(p[1]-e[1])));
+const lt=(a,b)=>a[0]<b[0]||(a[0]==b[0]&&a[1]<b[1]);
+function push(h,x){h.push(x);let i=h.length-1;while(i>0){const p=(i-1)>>1;if(lt(h[i],h[p])){[h[i],h[p]]=[h[p],h[i]];i=p}else break}}
+function pop(h){const top=h[0],last=h.pop();if(h.length){h[0]=last;let i=0;for(;;){const l=2*i+1,r=l+1;let m=i;if(l<h.length&&lt(h[l],h[m]))m=l;if(r<h.length&&lt(h[r],h[m]))m=r;if(m==i)break;[h[i],h[m]]=[h[m],h[i]];i=m}}return top}
+function plan(start,ft,rv,re){
+ const pr=(g,p)=>algo=="astar"?g+hh(p):hh(p);
+ const K=(p,t)=>(p[0]*W+p[1])*(MAXT+2)+t,pq=[],par=new Map(),best=new Map();let cnt=0,exp=0;
+ push(pq,[pr(0,start),cnt,0,start,0]);par.set(K(start,0),null);best.set(K(start,0),0);
+ while(pq.length){const [,,g,p,t]=pop(pq);if(g>best.get(K(p,t)))continue;exp++;
+  if(isExit(p)){const path=[];let s=[p,t];while(s){path.push(s[0]);s=par.get(K(s[0],s[1]))}return [path.reverse(),exp]}
+  if(t>=MAXT)continue;
+  for(const [dr,dc] of MOVES){const n=[p[0]+dr,p[1]+dc];
+   if(n[0]<0||n[0]>=H||n[1]<0||n[1]>=W||GRID[n[0]][n[1]]=="#")continue;
+   const f=ft.has(n+"")?ft.get(n+""):INF;if(f<=t+1)continue;
+   if(rv.has(K(n,t+1))||re.has(n+"|"+p+"|"+t))continue;
+   const ng=g+1+(f-(t+1)<=3?3:0),k=K(n,t+1);
+   if(ng<(best.has(k)?best.get(k):INF)){best.set(k,ng);par.set(k,[p,t]);push(pq,[pr(ng,n),++cnt,ng,n,t+1])}}}
+ return [null,exp]}
+function jsSolve(){
+ const S=SC[scen],agents=custom||BASE.concat(S.x),ft=fireTimes(S.f,S.s);
+ const run=order=>{const rv=new Set,re=new Set,paths={},failed=[],info={};let tot=0;
+  for(const i of order){const [path,e]=plan(agents[i],ft,rv,re);tot+=e;info[i]=e;
+   if(!path){failed.push(i);continue}paths[i]=path;
+   path.forEach((p,t)=>{rv.add((p[0]*W+p[1])*(MAXT+2)+t);if(t<path.length-1)re.add(p+"|"+path[t+1]+"|"+t)})}
+  return {paths,failed,tot,info}};
+ let order=agents.map((_,i)=>i),res=run(order),total=res.tot,firstFail=res.failed.slice(),retried=0;
+ for(let a=0;a<3&&res.failed.length;a++){order=res.failed.concat(order.filter(i=>!res.failed.includes(i)));
+  const r2=run(order);total+=r2.tot;retried++;if(Object.keys(r2.paths).length>Object.keys(res.paths).length)res=r2}
+ const ps=Object.values(res.paths);
+ return {agents,ft,paths:res.paths,failed:res.failed,info:res.info,total,firstFail,retried,T:ps.length?Math.max(...ps.map(p=>p.length))-1:0,saved:ps.length,src:"browser"}}
+
+async function getR(){try{const r=await fetch("/api/solve?scenario="+scen+"&algo="+algo+(custom?"&agents="+encodeURIComponent(custom.map(a=>a.join(",")).join(";")):""));if(!r.ok)throw 0;const d=await r.json();if(custom&&d.agents.length!==custom.length)return Object.assign(jsSolve(),{src:"browser (your evacuation.py is old - replace it)"});d.ft=new Map(Object.entries(d.ft));return d}catch(e){return jsSolve()}}
+function btns(id,items,cur,fn){const el=document.getElementById(id);el.innerHTML="";
+ for(const [k,l] of items){const b=document.createElement("button");b.textContent=l;b.setAttribute("aria-pressed",k==cur);b.onclick=()=>fn(k);el.appendChild(b)}}
+async function update(){stop();R=await getR();T=0;sel=null;
+ btns("scen",[["normal","Normal"],["exit_blocked","Exit blocked"],["bottleneck","Bottleneck"],["trapped","Trapped"],["fast_fire","Fast fire"],["door_fire","Door fire"],["crowd_fire","Crowd + fire"]],scen,k=>{scen=k;update()});
+ btns("algo",[["astar","A*"],["greedy","Greedy"]],algo,k=>{algo=k;update()});
+ const sl=document.getElementById("sl");sl.max=R.T;sl.value=0;
+ document.getElementById("stats").innerHTML=`<div><b>${R.saved}/${R.agents.length}</b><span>final people saved</span></div><div><b>${R.total.toLocaleString()}</b><span>nodes expanded</span></div><div><b>t=${R.T}</b><span>evacuation done</span></div>`;
+ let n=SC[scen].d;
+ if(R.retried&&R.firstFail.length)n+=` <b>Retry used:</b> person ${R.firstFail.join(", ")} had no route at first.`;
+ if(R.failed.length)n+=` <span class="bad">Person ${R.failed.join(", ")}: no safe route.</span>`;
+ if(custom)n+=` <b>Custom positions:</b> ${custom.length} people placed by you.`;n+=` <span class="small">(planner: ${R.src})</span>`;document.getElementById("note").innerHTML=n;
+ const mx=Math.max(...Object.values(R.info),1);
+ document.getElementById("agents").innerHTML="";
+ R.agents.forEach((a,i)=>{const p=R.paths[i],b=document.createElement("button");b.className="ag";b.setAttribute("aria-pressed","false");
+  b.innerHTML=`<span class="dot" style="background:${COL[i%10]}">${i}</span><span>${p?`to exit (${p[p.length-1]}) in ${p.length-1} steps`:'<span class="bad">no safe route</span>'}<span class="bar"><i style="width:${R.info[i]/mx*100}%"></i></span></span><span class="small">${R.info[i]}</span>`;
+  b.onclick=()=>{sel=sel===i?null:i;document.querySelectorAll(".ag").forEach((x,j)=>x.setAttribute("aria-pressed",j===sel));draw()};
+  document.getElementById("agents").appendChild(b)});
+ draw()}
+function stop(){if(timer){clearInterval(timer);timer=null}document.getElementById("play").textContent="Play"}
+function setT(t){T=Math.max(0,Math.min(R.T,t));document.getElementById("sl").value=T;draw()}
+const cs=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function draw(){
+ const cv=document.getElementById("cv"),w=cv.parentElement.clientWidth-30,cell=Math.floor(w/W),dpr=window.devicePixelRatio||1;
+ cv.style.width=cell*W+"px";cv.style.height=cell*H+"px";cv.width=cell*W*dpr;cv.height=cell*H*dpr;
+ const x=cv.getContext("2d");x.scale(dpr,dpr);
+ const mxF=Math.max(...[...R.ft.values()].filter(v=>v<500),1);
+ for(let r=0;r<H;r++)for(let c=0;c<W;c++){const ch=GRID[r][c],X=c*cell,Y=r*cell;
+  if(ch=="#"){x.fillStyle=cs("--wall")}
+  else{x.fillStyle=cs("--floor");}
+  x.fillRect(X,Y,cell,cell);
+  if(ch!="#"){const f=R.ft.has(r+","+c)?R.ft.get(r+","+c):INF;
+   if(forecast&&f<500){x.fillStyle=cs("--fire");x.globalAlpha=.08+.4*(1-f/mxF);x.fillRect(X,Y,cell,cell);x.globalAlpha=1;
+    x.fillStyle=cs("--mute");x.font=`${cell*.32}px sans-serif`;x.textAlign="right";x.fillText(f,X+cell-3,Y+cell*.38)}
+   if(ch=="E"){x.fillStyle=cs("--exit");x.globalAlpha=.9;x.fillRect(X+2,Y+2,cell-4,cell-4);x.globalAlpha=1;x.fillStyle="#fff";x.font=`bold ${cell*.5}px sans-serif`;x.textAlign="center";x.fillText("E",X+cell/2,Y+cell*.68)}
+   if(ch=="D"){x.strokeStyle=cs("--mute");x.setLineDash([3,3]);x.strokeRect(X+2,Y+2,cell-4,cell-4);x.setLineDash([])}
+   if(f<=T){x.fillStyle=cs("--fire");x.fillRect(X,Y,cell,cell);x.fillStyle="#ffd9a8";x.beginPath();x.arc(X+cell/2,Y+cell/2,cell*.18,0,7);x.fill()}
+   x.strokeStyle=cs("--line");x.lineWidth=.5;x.strokeRect(X,Y,cell,cell)}}
+ if(sel!==null&&R.paths[sel]){const p=R.paths[sel];x.strokeStyle=COL[sel%10];x.lineWidth=3;x.globalAlpha=.7;x.beginPath();
+  p.forEach((q,t)=>{const X=q[1]*cell+cell/2,Y=q[0]*cell+cell/2;t?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke();x.globalAlpha=1}
+ R.agents.forEach((a,i)=>{const p=R.paths[i];if(!p||T>=p.length)return;const q=p[T];
+  x.fillStyle=COL[i%10];x.beginPath();x.arc(q[1]*cell+cell/2,q[0]*cell+cell/2,cell*(sel===i?.42:.34),0,7);x.fill();
+  x.fillStyle="#fff";x.font=`bold ${cell*.4}px sans-serif`;x.textAlign="center";x.fillText(i,q[1]*cell+cell/2,q[0]*cell+cell*.63)});
+ if(!R.agents.some((a,i)=>!R.paths[i]))0;else R.failed.forEach(i=>{const a=R.agents[i];x.strokeStyle=cs("--fire");x.setLineDash([3,3]);x.lineWidth=2;x.beginPath();x.arc(a[1]*cell+cell/2,a[0]*cell+cell/2,cell*.38,0,7);x.stroke();x.setLineDash([]);x.fillStyle=cs("--fire");x.font=`bold ${cell*.4}px sans-serif`;x.textAlign="center";x.fillText(i,a[1]*cell+cell/2,a[0]*cell+cell*.63)});
+ const N=R.agents.length,sv=R.agents.filter((a,i)=>R.paths[i]&&T>=R.paths[i].length-1).length,ls=R.failed.length;
+ document.getElementById("live").textContent=sv+"/"+N;document.getElementById("going").textContent=N-sv-ls;document.getElementById("lost").textContent=ls;
+ const idl=a=>a.length?a.join(", "):"none",svI=R.agents.map((a,i)=>i).filter(i=>R.paths[i]&&T>=R.paths[i].length-1),goI=R.agents.map((a,i)=>i).filter(i=>R.paths[i]&&T<R.paths[i].length-1);
+ document.getElementById("who").innerHTML=`<b style="color:var(--exit)">Saved:</b> ${idl(svI)} &nbsp;|&nbsp; <b>Still evacuating:</b> ${idl(goI)} &nbsp;|&nbsp; <b class="bad">Lost (no safe route):</b> ${idl(R.failed)}`;
+ document.getElementById("tl").textContent="t="+T}
+document.getElementById("play").onclick=()=>{if(timer){stop();return}if(T>=R.T)setT(0);document.getElementById("play").textContent="Pause";
+ timer=setInterval(()=>{if(T>=R.T){stop();return}setT(T+1)},420)};
+document.getElementById("prev").onclick=()=>{stop();setT(T-1)};
+document.getElementById("next").onclick=()=>{stop();setT(T+1)};
+document.getElementById("sl").oninput=e=>{stop();setT(+e.target.value)};
+document.getElementById("fc").onclick=e=>{forecast=!forecast;e.target.setAttribute("aria-pressed",forecast);draw()};
+function msg(t){const e=document.getElementById("plh");e.textContent=t;e.style.color="var(--fire)";setTimeout(()=>{e.style.color="";hint()},2500)}
+function hint(){const cm=place;
+ document.getElementById("pd").setAttribute("aria-pressed",!cm);document.getElementById("pc").setAttribute("aria-pressed",cm);
+ document.getElementById("pk").style.display=cm?"":"none";
+ document.getElementById("plh").textContent=cm?"Click a floor cell to add a person, click a person to remove (max 10). Then press Play.":"Using the scenario's own people. Just press Play.";
+ document.getElementById("cv").style.cursor=cm?"crosshair":"default"}
+document.getElementById("pd").onclick=()=>{place=false;custom=null;hint();update()};
+document.getElementById("pc").onclick=()=>{place=true;hint()};
+document.getElementById("pk").onclick=()=>{custom=[];update()};
+document.getElementById("cv").onclick=e=>{if(!place||!R)return;const b=e.target.getBoundingClientRect(),cell=b.width/W,c=Math.floor((e.clientX-b.left)/cell),r=Math.floor((e.clientY-b.top)/cell);
+ if(r<0||r>=H||c<0||c>=W)return;const ch=GRID[r][c];if(ch=="#"||ch=="E"){msg("Cannot place on a wall or exit - click a floor cell.");return}
+ const cur=R.agents.map(a=>[a[0],a[1]]),i=cur.findIndex(a=>a[0]==r&&a[1]==c);
+ if(i>=0){cur.splice(i,1)}else{if(R.ft.get(r+","+c)<=0){msg("That cell is already on fire at t=0 - pick another cell.");return}if(cur.length>=10){msg("Maximum 10 people.");return}cur.push([r,c])}
+ custom=cur;update()};
+hint();
+addEventListener("resize",()=>R&&draw());
+update();
+</script></main></body></html>
